@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"testing"
 )
 
@@ -102,6 +103,16 @@ func TestFail2(t *testing.T) {
 	args := map[string]string{
 		"-k": "2",
 	}
+	err := mySort(in, out, args)
+	if err == nil {
+		t.Errorf("Test FAIL failed: expected error")
+	}
+}
+
+func TestFail3(t *testing.T) {
+	var in io.Reader
+	var out io.Writer
+	args := map[string]string{}
 	err := mySort(in, out, args)
 	if err == nil {
 		t.Errorf("Test FAIL failed: expected error")

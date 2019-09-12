@@ -10,32 +10,34 @@ import (
 	"strings"
 )
 
+const paramOutputFile = "-o"
+const paramSortColumn = "-k"
+const paramFilename = "filename"
+const paramDescSort = "-r"
+const paramCaseInsensitive = "-f"
+const paramSortNumberValueType = "-n"
+const paramUniqueFilter = "-u"
+const columnsSeparator = " "
+const emptyString = ""
+const stringTypeName = "string"
+const intTypeName = "int"
+
+type sortConfig struct {
+	desc            bool
+	caseInsensitive bool
+	unique          bool
+	valuesType      string
+	column          int
+}
+
 func main() {
-	args := make(map[string]string)
-	var prevArg string
+	args := getParsedArgs()
 
-	for _, arg := range os.Args[1:] {
-		if prevArg == "-o" || prevArg == "-k" {
-			args[prevArg] = arg
-			prevArg = arg
-			continue
-		}
-
-		if strings.HasSuffix(arg, ".txt") {
-			args["filename"] = arg
-			prevArg = arg
-			continue
-		}
-
-		args[arg] = arg
-		prevArg = arg
-	}
-
-	file, _ := os.Open(args["filename"])
+	file, _ := os.Open(args[paramFilename])
 	output := os.Stdout
 
-	if args["-o"] != "" {
-		output, _ = os.Create(args["-o"])
+	if args[paramOutputFile] != emptyString {
+		output, _ = os.Create(args[paramOutputFile])
 	}
 
 	err := mySort(file, output, args)
@@ -48,6 +50,85 @@ func main() {
 }
 
 func mySort(input io.Reader, output io.Writer, args map[string]string) error {
+	if input == nil || output == nil {
+		return fmt.Errorf("io argument error")
+	}
+
+	config, e := getSortConfig(args)
+
+	if e != nil {
+		return fmt.Errorf(e.Error())
+	}
+
+	table := getTableFromReader(input)
+
+	if table != nil && len(table[0]) < config.column {
+		return fmt.Errorf("column index error")
+	}
+
+	sort.Slice(table, func(i, j int) bool {
+		a := table[i][config.column]
+		b := table[j][config.column]
+
+		if config.caseInsensitive && config.valuesType != intTypeName {
+			a = strings.ToLower(a)
+			b = strings.ToLower(b)
+		}
+
+		if config.valuesType == intTypeName {
+			aNum, _ := strconv.Atoi(a)
+			bNum, _ := strconv.Atoi(b)
+
+			return numberComparator(aNum, bNum, config.desc)
+		}
+
+		return stringComparator(a, b, config.desc)
+	})
+
+	if config.unique {
+		table = getUnique(table, config.column, config.caseInsensitive)
+	}
+
+	for _, row := range table {
+		_, e := fmt.Fprintln(output, strings.Join(row, columnsSeparator))
+
+		if e != nil {
+			return e
+		}
+	}
+
+	return nil
+}
+
+func getParsedArgs() map[string]string {
+	args := make(map[string]string)
+	var prevArg string
+	var key, val string
+
+	for _, arg := range os.Args[1:] {
+		if arg == paramOutputFile || arg == paramSortColumn {
+			key = arg
+			val = emptyString
+		}
+
+		if prevArg == paramOutputFile || prevArg == paramSortColumn {
+			key = prevArg
+			val = arg
+		}
+
+		if strings.HasSuffix(arg, ".txt") {
+			key = paramFilename
+			val = arg
+		}
+
+		args[key] = val
+		prevArg = arg
+	}
+
+	return args
+}
+
+func getTableFromReader(input io.Reader) [][]string {
 	in := bufio.NewScanner(input)
 	var table [][]string
 
@@ -57,7 +138,7 @@ func mySort(input io.Reader, output io.Writer, args map[string]string) error {
 		if len(line) > 0 {
 			var row []string
 
-			for _, word := range strings.Split(line, " ") {
+			for _, word := range strings.Split(line, columnsSeparator) {
 				row = append(row, word)
 			}
 
@@ -65,101 +146,78 @@ func mySort(input io.Reader, output io.Writer, args map[string]string) error {
 		}
 	}
 
-	desc := false
-	caseInsensitive := false
-	valuesType := "string"
-	unique := false
-	col := 0
-	var e error
+	return table
+}
 
-	if args["-k"] != "" {
-		col, e = strconv.Atoi(args["-k"])
-
-		if e != nil {
-			return fmt.Errorf(e.Error())
-		}
+func numberComparator(a, b int, desc bool) bool {
+	if desc {
+		return a > b
 	}
 
-	if args["-r"] != "" {
-		desc = true
+	return a < b
+}
+
+func stringComparator(a, b string, desc bool) bool {
+	if desc {
+		return a > b
 	}
 
-	if args["-f"] != "" {
-		caseInsensitive = true
-	}
+	return a < b
+}
 
-	if args["-n"] != "" {
-		valuesType = "number"
-	}
-
-	if args["-u"] != "" {
-		unique = true
-	}
-
-	if table != nil && len(table[0]) < col {
-		return fmt.Errorf("column index error")
-	}
-
-	sort.Slice(table, func(i, j int) bool {
-		a := table[i][col]
-		b := table[j][col]
-
-		if caseInsensitive && valuesType != "number" {
-			a = strings.ToLower(a)
-			b = strings.ToLower(b)
-		}
-
-		var a1 int
-		var b1 int
-
-		if valuesType == "number" {
-			a1, _ = strconv.Atoi(a)
-			b1, _ = strconv.Atoi(b)
-
-			if desc {
-				return a1 > b1
-			}
-
-			return a1 < b1
-		}
-
-		if desc {
-			return a > b
-		}
-
-		return a < b
-	})
-
-	if unique {
-		uniques := make(map[string]bool)
-		var ln int
-
-		for _, row := range table {
-			key := row[col]
-
-			if caseInsensitive {
-				key = strings.ToLower(key)
-			}
-
-			if uniques[key] {
-				continue
-			}
-
-			uniques[key] = true
-			table[ln] = row
-			ln++
-		}
-
-		table = table[:ln]
-	}
+func getUnique(table [][]string, col int, caseInsensitive bool) [][]string {
+	uniques := make(map[string]bool)
+	var ln int
 
 	for _, row := range table {
-		_, e := fmt.Fprintln(output, strings.Join(row, " "))
+		key := row[col]
+
+		if caseInsensitive {
+			key = strings.ToLower(key)
+		}
+
+		if uniques[key] {
+			continue
+		}
+
+		uniques[key] = true
+		table[ln] = row
+		ln++
+	}
+
+	table = table[:ln]
+
+	return table
+}
+
+func getSortConfig(args map[string]string) (sortConfig, error) {
+	var config = sortConfig{false, false, false, stringTypeName, 0}
+
+	var e error
+
+	if args[paramSortColumn] != emptyString {
+		config.column, e = strconv.Atoi(args[paramSortColumn])
 
 		if e != nil {
-			return e
+			return config, e
 		}
 	}
 
-	return nil
+	if args[paramDescSort] != emptyString {
+		config.desc = true
+	}
+
+	if args[paramCaseInsensitive] != emptyString {
+		config.caseInsensitive = true
+	}
+
+	if args[paramSortNumberValueType] != emptyString {
+		config.valuesType = intTypeName
+	}
+
+	if args[paramUniqueFilter] != emptyString {
+		config.unique = true
+	}
+
+	return config, nil
 }

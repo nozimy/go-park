@@ -80,81 +80,70 @@ func calc(input io.Reader, output io.Writer) error {
 
 	var stack Stack
 	stack.New()
-
 	var runeNum []rune
 	var num float64
 	var lastOperator rune
-	var lastCh string
+	var lastChar string
 
-	for _, ch := range line {
-		strCh := string(ch)
+	for _, char := range line {
+		strChar := string(char)
 
-		if charIsOperator(strCh) && charIsOperator(lastCh) {
+		if charIsOperator(strChar) && charIsOperator(lastChar) {
 			return fmt.Errorf(malformedExpressionErr)
 		}
 
-		if charIsNumber(strCh) {
-			runeNum = append(runeNum, ch)
-		} else if charIsOperator(strCh) {
+		if charIsNumber(strChar) {
+			runeNum = append(runeNum, char)
+		} else if charIsOperator(strChar) {
 			num, _ = strconv.ParseFloat(string(runeNum), 64)
 			runeNum = nil
 
-			if getPrecedence(ch) >= getPrecedence(lastOperator) {
-				if ch == minus {
-					runeNum = append(runeNum, ch)
-					ch = plus
+			if getPrecedence(char) >= getPrecedence(lastOperator) {
+				if char == minus {
+					runeNum = append(runeNum, char)
+					char = plus
 				}
 
 				stack.Push(StackItem{
-					operator: ch,
+					operator: char,
 					num:      num,
 				})
 			} else {
-				for !stack.IsEmpty() {
-					item := stack.Pop()
-					num, _ = performOperator(item.num, num, item.operator)
-				}
+				num = pullStack(&stack, num)
 
 				stack.Push(StackItem{
-					operator: ch,
+					operator: char,
 					num:      num,
 				})
 			}
 
-			lastOperator = ch
-		} else if ch == parenOpen {
+			lastOperator = char
+		} else if char == parenOpen {
 			stack.Push(StackItem{
-				operator: ch,
+				operator: char,
 				num:      0,
 			})
 
-			lastOperator = ch
-		} else if ch == parenClose {
+			lastOperator = char
+		} else if char == parenClose {
 			num, _ = strconv.ParseFloat(string(runeNum), 64)
-
-			for stack.Peek().operator != parenOpen {
-				item := stack.Pop()
-				num, _ = performOperator(item.num, num, item.operator)
-			}
+			num = pullStack(&stack, num)
 
 			stack.Pop()
-			lastOperator = ch
+			lastOperator = char
 			runeNum = []rune(fmt.Sprintf("%f", num))
-		} else if ch == endOfLine {
-			if charIsOperator(lastCh) {
+		} else if char == endOfLine {
+			if charIsOperator(lastChar) {
 				return fmt.Errorf(malformedExpressionErr)
 			}
 
 			num, _ = strconv.ParseFloat(string(runeNum), 64)
-
-			for !stack.IsEmpty() {
-				item := stack.Pop()
-				num, _ = performOperator(item.num, num, item.operator)
-			}
+			num = pullStack(&stack, num)
 		} else {
-			return fmt.Errorf("invalid character %s", strCh)
+			return fmt.Errorf("invalid character %s", strChar)
 		}
-		lastCh = strCh
+
+		lastChar = strChar
 	}
 
 	_, err := fmt.Fprint(output, num)
@@ -221,4 +210,13 @@ func getPrecedence(operator rune) int {
 	}
 
 	return -1
+}
+
+func pullStack(stack *Stack, num float64) float64 {
+	for !stack.IsEmpty() && stack.Peek().operator != parenOpen {
+		item := stack.Pop()
+		num, _ = performOperator(item.num, num, item.operator)
+	}
+
+	return num
 }
