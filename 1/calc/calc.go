@@ -11,17 +11,19 @@ import (
 	"strings"
 )
 
-const numbers = "1234567890."
-const operators = "+-*/"
-const plus = '+'
-const minus = '-'
-const multiply = '*'
-const divide = '/'
-const parenOpen = '('
-const parenClose = ')'
-const endOfLine = '\r'
-const malformedExpressionErr = "malformed expression"
-const invalidBracketsErr = "invalid brackets"
+const (
+	numbers                = "1234567890."
+	operators              = "+-*/"
+	plus                   = '+'
+	minus                  = '-'
+	multiply               = '*'
+	divide                 = '/'
+	parenOpen              = '('
+	parenClose             = ')'
+	endOfLine              = '\r'
+	malformedExpressionErr = "malformed expression"
+	invalidBracketsErr     = "invalid brackets"
+)
 
 type StackItem struct {
 	operator rune
@@ -32,23 +34,29 @@ type Stack struct {
 	items []StackItem
 }
 
-func (s *Stack) New() *Stack {
-	s.items = []StackItem{}
-	return s
+func NewStack() Stack {
+	return Stack{}
 }
 
-func (s *Stack) Push(t StackItem) {
+func (s *Stack) PushItem(t StackItem) {
 	s.items = append(s.items, t)
+}
+
+func (s *Stack) Push(num float64, operator rune) {
+	s.PushItem(StackItem{
+		operator: operator,
+		num:      num,
+	})
 }
 
 func (s *Stack) Pop() *StackItem {
 	item := s.items[len(s.items)-1]
-	s.items = s.items[0 : len(s.items)-1]
+	s.items = s.items[:len(s.items)-1]
 	return &item
 }
 
 func (s *Stack) IsEmpty() bool {
-	return s.items == nil || len(s.items) == 0
+	return len(s.items) == 0
 }
 
 func (s *Stack) Peek() *StackItem {
@@ -58,7 +66,20 @@ func (s *Stack) Peek() *StackItem {
 
 func main() {
 	in := bytes.NewBufferString(strings.Join(os.Args[1:], ""))
-	err := calc(in, os.Stdout)
+
+	var err error
+	line, err := readExpression(in)
+	if err != nil {
+		fmt.Printf("failed to readExpression() %s", err)
+	}
+	num, err := calc(line)
+	if err != nil {
+		fmt.Printf("failed to calc() %s", err)
+	}
+	err = writeResult(os.Stdout, num)
+	if err != nil {
+		fmt.Printf("failed to writeResult() %s", err)
+	}
 
 	if err != nil {
 		fmt.Println(err)
@@ -66,7 +87,7 @@ func main() {
 	}
 }
 
-func calc(input io.Reader, output io.Writer) error {
+func readExpression(input io.Reader) (string, error) {
 	in := bufio.NewScanner(input)
 	var line string
 
@@ -74,14 +95,28 @@ func calc(input io.Reader, output io.Writer) error {
 		line = in.Text() + "\r"
 	}
 
-	if !validateBrackets(line) {
-		return fmt.Errorf(invalidBracketsErr)
+	if in.Err() != nil {
+		return line, in.Err()
 	}
 
-	var stack Stack
-	stack.New()
-	var runeNum []rune
+	return line, nil
+}
+
+func writeResult(output io.Writer, num float64) error {
+	_, err := fmt.Fprint(output, num)
+
+	return err
+}
+
+func calc(line string) (float64, error) {
 	var num float64
+
+	if !validateBrackets(line) {
+		return num, fmt.Errorf(invalidBracketsErr)
+	}
+
+	stack := NewStack()
+	var runeNum []rune
 	var lastOperator rune
 	var lastChar string
 
@@ -89,14 +124,22 @@ func calc(input io.Reader, output io.Writer) error {
 		strChar := string(char)
 
 		if charIsOperator(strChar) && charIsOperator(lastChar) {
-			return fmt.Errorf(malformedExpressionErr)
+			return num, fmt.Errorf(malformedExpressionErr)
 		}
 
-		if charIsNumber(strChar) {
+		var err error
+
+		switch {
+		case charIsNumber(strChar):
 			runeNum = append(runeNum, char)
-		} else if charIsOperator(strChar) {
-			num, _ = strconv.ParseFloat(string(runeNum), 64)
-			runeNum = nil
+		case charIsOperator(strChar):
+			if runeNum != nil {
+				num, err = strconv.ParseFloat(string(runeNum), 64)
+				if err != nil {
+					return num, err
+				}
+				runeNum = nil
+			}
 
 			if getPrecedence(char) >= getPrecedence(lastOperator) {
 				if char == minus {
@@ -104,55 +147,59 @@ func calc(input io.Reader, output io.Writer) error {
 					char = plus
 				}
 
-				stack.Push(StackItem{
-					operator: char,
-					num:      num,
-				})
+				stack.Push(num, char)
 			} else {
-				num = pullStack(&stack, num)
+				num, err = pullStack(&stack, num)
+				if err != nil {
+					return num, err
+				}
 
-				stack.Push(StackItem{
-					operator: char,
-					num:      num,
-				})
+				stack.Push(num, char)
 			}
 
 			lastOperator = char
-		} else if char == parenOpen {
-			stack.Push(StackItem{
-				operator: char,
-				num:      0,
-			})
+		case char == parenOpen:
+			stack.Push(0, char)
 
 			lastOperator = char
-		} else if char == parenClose {
-			num, _ = strconv.ParseFloat(string(runeNum), 64)
-			num = pullStack(&stack, num)
+		case char == parenClose:
+			num, err = strconv.ParseFloat(string(runeNum), 64)
+			if err != nil {
+				return num, err
+			}
+			num, err = pullStack(&stack, num)
+			if err != nil {
+				return num, err
+			}
 
 			stack.Pop()
 			lastOperator = char
 			runeNum = []rune(fmt.Sprintf("%f", num))
-		} else if char == endOfLine {
+		case char == endOfLine:
 			if charIsOperator(lastChar) {
-				return fmt.Errorf(malformedExpressionErr)
+				return num, fmt.Errorf(malformedExpressionErr)
 			}
 
-			num, _ = strconv.ParseFloat(string(runeNum), 64)
-			num = pullStack(&stack, num)
-		} else {
-			return fmt.Errorf("invalid character %s", strChar)
+			num, err = strconv.ParseFloat(string(runeNum), 64)
+			if err != nil {
+				return num, err
+			}
+			num, err = pullStack(&stack, num)
+			if err != nil {
+				return num, err
+			}
+		default:
+			return num, fmt.Errorf("invalid character %s", strChar)
 		}
 
 		lastChar = strChar
 	}
 
-	_, err := fmt.Fprint(output, num)
-
-	return err
+	return num, nil
 }
 
 func charIsNumber(ch string) bool {
-	return strings.Index(numbers, ch) != -1
+	return strings.Index(numbers, ch) != -1 && ch != ""
 }
 
 func charIsOperator(ch string) bool {
@@ -199,24 +246,24 @@ func validateBrackets(str string) bool {
 
 func getPrecedence(operator rune) int {
 	switch operator {
-	case plus:
-		fallthrough
-	case minus:
+	case plus, minus:
 		return 1
-	case multiply:
-		fallthrough
-	case divide:
+	case multiply, divide:
 		return 2
 	}
 
 	return -1
 }
 
-func pullStack(stack *Stack, num float64) float64 {
+func pullStack(stack *Stack, num float64) (float64, error) {
+	var err error
 	for !stack.IsEmpty() && stack.Peek().operator != parenOpen {
 		item := stack.Pop()
-		num, _ = performOperator(item.num, num, item.operator)
+		num, err = performOperator(item.num, num, item.operator)
+		if err != nil {
+			return num, err
+		}
 	}
 
-	return num
+	return num, nil
 }

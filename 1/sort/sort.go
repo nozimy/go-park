@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -10,72 +11,80 @@ import (
 	"strings"
 )
 
-const paramOutputFile = "-o"
-const paramSortColumn = "-k"
-const paramFilename = "filename"
-const paramDescSort = "-r"
-const paramCaseInsensitive = "-f"
-const paramSortNumberValueType = "-n"
-const paramUniqueFilter = "-u"
-const columnsSeparator = " "
-const emptyString = ""
-const stringTypeName = "string"
-const intTypeName = "int"
+const (
+	columnsSeparator = " "
+	columnIndexError = "column index error"
+)
 
 type sortConfig struct {
 	desc            bool
 	caseInsensitive bool
 	unique          bool
-	valuesType      string
+	valuesAreNumber bool
 	column          int
+	outputFilename  string
+	inputFilename   string
+}
+
+func NewSortConfig() sortConfig {
+	return sortConfig{false, false, false, false, 0, "", ""}
 }
 
 func main() {
-	args := getParsedArgs()
+	config := getParsedArgs()
 
-	file, _ := os.Open(args[paramFilename])
+	file, err := os.Open(config.inputFilename)
+	if err != nil {
+		fmt.Printf("failed to os.Open() %s", err)
+	}
 	output := os.Stdout
-
-	if args[paramOutputFile] != emptyString {
-		output, _ = os.Create(args[paramOutputFile])
+	if len(config.outputFilename) != 0 {
+		output, err = os.Create(config.outputFilename)
+		if err != nil {
+			fmt.Printf("failed to os.Create() %s", err)
+		}
 	}
 
-	err := mySort(file, output, args)
-	closeErr := file.Close()
+	table, err := getTableFromReader(file)
+	if err != nil {
+		fmt.Printf("failed to getTableFromReader() %s", err)
+	}
+	err = file.Close()
+	if err != nil {
+		fmt.Printf("failed to close file %s", err)
+	}
 
-	if err != nil && closeErr != nil {
+	table, err = mySort(table, config)
+	if err != nil {
+		fmt.Printf("failed to mySort() %s", err)
+	}
+
+	err = writeResult(output, table)
+	if err != nil {
+		fmt.Printf("failed to writeResult() %s", err)
+	}
+
+	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 }
 
-func mySort(input io.Reader, output io.Writer, args map[string]string) error {
-	if input == nil || output == nil {
-		return fmt.Errorf("io argument error")
-	}
-
-	config, e := getSortConfig(args)
-
-	if e != nil {
-		return fmt.Errorf(e.Error())
-	}
-
-	table := getTableFromReader(input)
-
-	if table != nil && len(table[0]) < config.column {
-		return fmt.Errorf("column index error")
+func mySort(table [][]string, config sortConfig) ([][]string, error) {
+	if table == nil || len(table[0]) < config.column {
+		return table, fmt.Errorf(columnIndexError)
 	}
 
 	sort.Slice(table, func(i, j int) bool {
 		a := table[i][config.column]
 		b := table[j][config.column]
 
-		if config.caseInsensitive && config.valuesType != intTypeName {
+		if config.caseInsensitive && !config.valuesAreNumber {
 			a = strings.ToLower(a)
 			b = strings.ToLower(b)
 		}
 
-		if config.valuesType == intTypeName {
+		if config.valuesAreNumber {
 			aNum, _ := strconv.Atoi(a)
 			bNum, _ := strconv.Atoi(b)
 
@@ -89,64 +98,61 @@ func mySort(input io.Reader, output io.Writer, args map[string]string) error {
 		table = getUnique(table, config.column, config.caseInsensitive)
 	}
 
-	for _, row := range table {
-		_, e := fmt.Fprintln(output, strings.Join(row, columnsSeparator))
-
-		if e != nil {
-			return e
-		}
-	}
-
-	return nil
+	return table, nil
 }
 
-func getParsedArgs() map[string]string {
-	args := make(map[string]string)
-	var prevArg string
-	var key, val string
+func getParsedArgs() sortConfig {
+	config := NewSortConfig()
+	flag.BoolVar(&config.desc, "r", false, "-r - сортировка по убыванию")
+	flag.BoolVar(&config.caseInsensitive, "f", false, "-f - игнорировать регистр букв")
+	flag.BoolVar(&config.unique, "u", false, "-u - выводить только первое среди нескольких равных")
+	flag.BoolVar(&config.valuesAreNumber, "n", false, "-n - сортировка чисел")
+	flag.IntVar(&config.column, "k", 0, "-k <номер столбца> - сортировать по столбцу (разделитель столбцов по умолчанию можно оставить пробел)")
+	flag.StringVar(&config.outputFilename, "o", "", "-o <файл> - выводить в файл, без этой опции выводить в stdout")
+	flag.Parse()
+	config.inputFilename = flag.Arg(0)
 
-	for _, arg := range os.Args[1:] {
-		if arg == paramOutputFile || arg == paramSortColumn {
-			key = arg
-			val = emptyString
-		}
-
-		if prevArg == paramOutputFile || prevArg == paramSortColumn {
-			key = prevArg
-			val = arg
-		}
-
-		if strings.HasSuffix(arg, ".txt") {
-			key = paramFilename
-			val = arg
-		}
-
-		args[key] = val
-		prevArg = arg
-	}
-
-	return args
+	return config
 }
 
-func getTableFromReader(input io.Reader) [][]string {
-	in := bufio.NewScanner(input)
+func getTableFromReader(input io.Reader) ([][]string, error) {
 	var table [][]string
+
+	if input == nil {
+		return table, fmt.Errorf("io argument error")
+	}
+
+	in := bufio.NewScanner(input)
 
 	for in.Scan() {
 		line := in.Text()
 
 		if len(line) > 0 {
-			var row []string
-
-			for _, word := range strings.Split(line, columnsSeparator) {
-				row = append(row, word)
-			}
-
-			table = append(table, row)
+			table = append(table, strings.Split(line, columnsSeparator))
 		}
 	}
 
-	return table
+	if in.Err() != nil {
+		return table, in.Err()
+	}
+
+	return table, nil
+}
+
+func writeResult(output io.Writer, table [][]string) error {
+	if output == nil {
+		return fmt.Errorf("io argument error")
+	}
+
+	for _, row := range table {
+		_, err := fmt.Fprintln(output, strings.Join(row, columnsSeparator))
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func numberComparator(a, b int, desc bool) bool {
@@ -188,36 +194,4 @@ func getUnique(table [][]string, col int, caseInsensitive bool) [][]string {
 	table = table[:ln]
 
 	return table
-}
-
-func getSortConfig(args map[string]string) (sortConfig, error) {
-	var config = sortConfig{false, false, false, stringTypeName, 0}
-
-	var e error
-
-	if args[paramSortColumn] != emptyString {
-		config.column, e = strconv.Atoi(args[paramSortColumn])
-
-		if e != nil {
-			return config, e
-		}
-	}
-
-	if args[paramDescSort] != emptyString {
-		config.desc = true
-	}
-
-	if args[paramCaseInsensitive] != emptyString {
-		config.caseInsensitive = true
-	}
-
-	if args[paramSortNumberValueType] != emptyString {
-		config.valuesType = intTypeName
-	}
-
-	if args[paramUniqueFilter] != emptyString {
-		config.unique = true
-	}
-
-	return config, nil
 }

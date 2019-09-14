@@ -2,11 +2,11 @@ package main
 
 import (
 	"bytes"
-	"io"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
-var testOkInput = `12
+var testOkInputString = `12
 12
 21
 45
@@ -14,107 +14,104 @@ var testOkInput = `12
 65
 6
 2
-32`
-
-var testOkResult = `65
-45
 32
-21
-12
-6
-2
 `
 
-var testOkInput2 = `Napkin
-Apple
-January
-BOOK
-January
-Hauptbahnhof
-Book
-Go`
+var testOkInput = [][]string{
+	{"12"},
+	{"12"},
+	{"21"},
+	{"45"},
+	{"2"},
+	{"65"},
+	{"6"},
+	{"2"},
+	{"32"},
+}
 
-var testOkResult2 = `Napkin
-January
-Hauptbahnhof
-Go
-BOOK
-Apple
-`
+var testOkResult = [][]string{
+	{"65"},
+	{"45"},
+	{"32"},
+	{"21"},
+	{"12"},
+	{"6"},
+	{"2"},
+}
+
+var testOkInput2 = [][]string{
+	{"Napkin"},
+	{"Apple"},
+	{"January"},
+	{"BOOK"},
+	{"January"},
+	{"Hauptbahnhof"},
+	{"Book"},
+	{"Go"},
+}
+
+var testOkResult2 = [][]string{
+	{"Napkin"},
+	{"January"},
+	{"Hauptbahnhof"},
+	{"Go"},
+	{"BOOK"},
+	{"Apple"},
+}
+
+func TestOkReadInput(t *testing.T) {
+	in := bytes.NewBufferString(testOkInputString)
+	table, err := getTableFromReader(in)
+	require.Equal(t, nil, err)
+	require.Equal(t, testOkInput, table)
+}
+
+func TestOkWriteResult(t *testing.T) {
+	out := bytes.NewBuffer(nil)
+	err := writeResult(out, testOkInput)
+	require.Equal(t, nil, err)
+	require.Equal(t, testOkInputString, out.String())
+}
 
 func TestOk(t *testing.T) {
-	in := bytes.NewBufferString(testOkInput)
-	out := bytes.NewBuffer(nil)
-	args := map[string]string{
-		"filename": "dataNums.txt",
-		"-o":       "output.txt",
-		"-f":       "-f",
-		"-u":       "-u",
-		"-k":       "0",
-		"-r":       "-r",
-		"-n":       "-n",
+	config := sortConfig{
+		desc:            true,
+		caseInsensitive: true,
+		unique:          true,
+		valuesAreNumber: true,
+		column:          0,
+		outputFilename:  "output.txt",
+		inputFilename:   "dataNums.tx",
 	}
-	err := mySort(in, out, args)
-	if err != nil {
-		t.Errorf("Test OK failed: %s", err)
-	}
-	result := out.String()
-	if result != testOkResult {
-		t.Errorf("Test OK failed, result not match")
-	}
+	table, err := mySort(testOkInput, config)
+	require.Equal(t, nil, err)
+	require.Equal(t, testOkResult, table)
 }
 
 func TestOk2(t *testing.T) {
-	in := bytes.NewBufferString(testOkInput2)
-	out := bytes.NewBuffer(nil)
-	args := map[string]string{
-		"filename": "dataNums.txt",
-		"-o":       "output.txt",
-		"-f":       "-f",
-		"-u":       "-u",
-		"-k":       "0",
-		"-r":       "-r",
+	config := sortConfig{
+		desc:            true,
+		caseInsensitive: true,
+		unique:          true,
+		valuesAreNumber: false,
+		column:          0,
+		outputFilename:  "output.txt",
+		inputFilename:   "data.tx",
 	}
-	err := mySort(in, out, args)
-	if err != nil {
-		t.Errorf("Test OK failed: %s", err)
-	}
-	result := out.String()
-	if result != testOkResult2 {
-		t.Errorf("Test OK failed, result not match")
-	}
+	table, err := mySort(testOkInput2, config)
+	require.Equal(t, nil, err)
+	require.Equal(t, testOkResult2, table)
 }
 
 func TestFail(t *testing.T) {
-	in := bytes.NewBufferString(testOkInput2)
-	out := bytes.NewBuffer(nil)
-	args := map[string]string{
-		"-k": "a2",
-	}
-	err := mySort(in, out, args)
-	if err == nil {
-		t.Errorf("Test FAIL failed: expected error")
-	}
+	_, err := mySort(nil, sortConfig{})
+	require.EqualError(t, err, columnIndexError)
 }
 
 func TestFail2(t *testing.T) {
-	in := bytes.NewBufferString(testOkInput2)
-	out := bytes.NewBuffer(nil)
-	args := map[string]string{
-		"-k": "2",
+	config := sortConfig{
+		column: 2,
 	}
-	err := mySort(in, out, args)
-	if err == nil {
-		t.Errorf("Test FAIL failed: expected error")
-	}
-}
-
-func TestFail3(t *testing.T) {
-	var in io.Reader
-	var out io.Writer
-	args := map[string]string{}
-	err := mySort(in, out, args)
-	if err == nil {
-		t.Errorf("Test FAIL failed: expected error")
-	}
+	_, err := mySort(testOkInput, config)
+	require.EqualError(t, err, columnIndexError)
 }
