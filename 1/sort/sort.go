@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sort"
 	"strconv"
@@ -35,38 +36,33 @@ func main() {
 
 	file, err := os.Open(config.inputFilename)
 	if err != nil {
-		fmt.Printf("failed to os.Open() %s", err)
+		log.Fatalf("failed to os.Open() %s", err)
 	}
 	output := os.Stdout
 	if len(config.outputFilename) != 0 {
 		output, err = os.Create(config.outputFilename)
 		if err != nil {
-			fmt.Printf("failed to os.Create() %s", err)
+			log.Fatalf("failed to os.Create() %s", err)
 		}
 	}
 
 	table, err := getTableFromReader(file)
 	if err != nil {
-		fmt.Printf("failed to getTableFromReader() %s", err)
+		log.Fatalf("failed to getTableFromReader() %s", err)
 	}
 	err = file.Close()
 	if err != nil {
-		fmt.Printf("failed to close file %s", err)
+		log.Fatalf("failed to close file %s", err)
 	}
 
 	table, err = mySort(table, config)
 	if err != nil {
-		fmt.Printf("failed to mySort() %s", err)
+		log.Fatalf("failed to mySort() %s", err)
 	}
 
 	err = writeResult(output, table)
 	if err != nil {
-		fmt.Printf("failed to writeResult() %s", err)
-	}
-
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Fatalf("failed to writeResult() %s", err)
 	}
 }
 

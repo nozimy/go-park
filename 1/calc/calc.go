@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -70,20 +71,15 @@ func main() {
 	var err error
 	line, err := readExpression(in)
 	if err != nil {
-		fmt.Printf("failed to readExpression() %s", err)
+		log.Fatalf("failed to readExpression() %s", err)
 	}
 	num, err := calc(line)
 	if err != nil {
-		fmt.Printf("failed to calc() %s", err)
+		log.Fatalf("failed to calc() %s", err)
 	}
 	err = writeResult(os.Stdout, num)
 	if err != nil {
-		fmt.Printf("failed to writeResult() %s", err)
-	}
-
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Fatalf("failed to writeResult() %s", err)
 	}
 }
 
