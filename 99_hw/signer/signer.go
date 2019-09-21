@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 type single struct {
@@ -39,7 +38,8 @@ func ExecutePipeline(jobs ...job) {
 	<-end
 }
 
-var SingleHash = func(in, out chan interface{}) {
+func SingleHash(in, out chan interface{}) {
+	mu := &sync.Mutex{}
 	for i := range in {
 		data := strconv.Itoa(i.(int))
 		md5 := make(chan string)
@@ -47,7 +47,9 @@ var SingleHash = func(in, out chan interface{}) {
 		crc32 := make(chan string)
 
 		go func() {
+			mu.Lock()
 			md5 <- DataSignerMd5(data)
+			mu.Unlock()
 		}()
 		go func() {
 			crc32Md5 <- DataSignerCrc32(<-md5)
@@ -60,12 +62,10 @@ var SingleHash = func(in, out chan interface{}) {
 			crc32Md5: crc32Md5,
 			crc32:    crc32,
 		}
-
-		time.Sleep(11 * time.Millisecond)
 	}
 }
 
-var MultiHash = func(in, out chan interface{}) {
+func MultiHash(in, out chan interface{}) {
 	wgOuter := &sync.WaitGroup{}
 
 	for i := range in {
@@ -77,7 +77,7 @@ var MultiHash = func(in, out chan interface{}) {
 	wgOuter.Wait()
 }
 
-var CombineResults = func(in, out chan interface{}) {
+func CombineResults(in, out chan interface{}) {
 	var data []string
 
 	for i := range in {
@@ -91,7 +91,7 @@ var CombineResults = func(in, out chan interface{}) {
 	out <- strings.Join(data, "_")
 }
 
-var doDataSignerCrc32 = func(index int, data string, resultMap map[int]string, mu *sync.Mutex, waiter *sync.WaitGroup) {
+func doDataSignerCrc32(index int, data string, resultMap map[int]string, mu *sync.Mutex, waiter *sync.WaitGroup) {
 	defer waiter.Done()
 	th := strconv.Itoa(index)
 	resString := DataSignerCrc32(th + data)
@@ -100,7 +100,7 @@ var doDataSignerCrc32 = func(index int, data string, resultMap map[int]string, m
 	mu.Unlock()
 }
 
-var doMultiHash = func(data single, out chan interface{}, waiter *sync.WaitGroup) {
+func doMultiHash(data single, out chan interface{}, waiter *sync.WaitGroup) {
 	defer waiter.Done()
 
 	dataStr := data.get()
