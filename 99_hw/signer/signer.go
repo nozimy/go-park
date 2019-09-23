@@ -19,23 +19,26 @@ func (s *single) get() string {
 func ExecutePipeline(jobs ...job) {
 	in := make(chan interface{})
 	out := make(chan interface{})
-	end := make(chan int)
+	wg := &sync.WaitGroup{}
 
-	for i, doJob := range jobs {
-		in = out
-		out = make(chan interface{})
+	for _, doJob := range jobs {
+		wg.Add(1)
+		mu := &sync.Mutex{}
 
-		go func(inInner, outInner chan interface{}, index int, endInner chan<- int, doJobInner job, lastIndex int) {
+		mu.Lock()
+		go func(inInner, outInner chan interface{}, doJobInner job) {
+			defer mu.Unlock()
+			defer wg.Done()
 			defer close(outInner)
 
 			doJobInner(inInner, outInner)
-			if index == lastIndex {
-				endInner <- index
-			}
-		}(in, out, i, end, doJob, len(jobs)-1)
+		}(in, out, doJob)
+
+		in = out
+		out = make(chan interface{})
 	}
 
-	<-end
+	wg.Wait()
 }
 
 func SingleHash(in, out chan interface{}) {
@@ -66,15 +69,15 @@ func SingleHash(in, out chan interface{}) {
 }
 
 func MultiHash(in, out chan interface{}) {
-	wgOuter := &sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 
 	for i := range in {
 		data := i.(single)
-		wgOuter.Add(1)
-		go doMultiHash(data, out, wgOuter)
+		wg.Add(1)
+		go doMultiHash(data, out, wg)
 	}
 
-	wgOuter.Wait()
+	wg.Wait()
 }
 
 func CombineResults(in, out chan interface{}) {
