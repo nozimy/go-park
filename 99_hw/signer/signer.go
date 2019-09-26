@@ -16,6 +16,12 @@ func (s *single) get() string {
 	return <-s.crc32 + "~" + <-s.crc32Md5
 }
 
+type md5Hasher struct {
+	mu sync.Mutex
+}
+
+var md5H = md5Hasher{}
+
 func ExecutePipeline(jobs ...job) {
 	in := make(chan interface{})
 	out := make(chan interface{})
@@ -23,11 +29,8 @@ func ExecutePipeline(jobs ...job) {
 
 	for _, doJob := range jobs {
 		wg.Add(1)
-		mu := &sync.Mutex{}
 
-		mu.Lock()
 		go func(inInner, outInner chan interface{}, doJobInner job) {
-			defer mu.Unlock()
 			defer wg.Done()
 			defer close(outInner)
 
@@ -42,7 +45,6 @@ func ExecutePipeline(jobs ...job) {
 }
 
 func SingleHash(in, out chan interface{}) {
-	mu := &sync.Mutex{}
 	for i := range in {
 		data := strconv.Itoa(i.(int))
 		md5 := make(chan string)
@@ -50,9 +52,9 @@ func SingleHash(in, out chan interface{}) {
 		crc32 := make(chan string)
 
 		go func() {
-			mu.Lock()
+			md5H.mu.Lock()
 			md5 <- DataSignerMd5(data)
-			mu.Unlock()
+			md5H.mu.Unlock()
 		}()
 		go func() {
 			crc32Md5 <- DataSignerCrc32(<-md5)
