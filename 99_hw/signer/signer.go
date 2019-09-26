@@ -20,6 +20,12 @@ type md5Hasher struct {
 	mu sync.Mutex
 }
 
+func (h *md5Hasher) Hash(data string) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return DataSignerMd5(data)
+}
+
 var md5H = md5Hasher{}
 
 func ExecutePipeline(jobs ...job) {
@@ -52,9 +58,7 @@ func SingleHash(in, out chan interface{}) {
 		crc32 := make(chan string)
 
 		go func() {
-			md5H.mu.Lock()
-			md5 <- DataSignerMd5(data)
-			md5H.mu.Unlock()
+			md5 <- md5H.Hash(data)
 		}()
 		go func() {
 			crc32Md5 <- DataSignerCrc32(<-md5)
